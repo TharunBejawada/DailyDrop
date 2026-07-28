@@ -18,6 +18,7 @@ import '../cart/cart_provider.dart';
 import '../cart/cart_screen.dart';
 import '../catalog/catalog_screen.dart';
 import '../orders/customer_orders_screen.dart';
+import '../../shared/widgets/fly_to_cart_overlay.dart';
 import 'home_tab_provider.dart';
 
 class CustomerHomeShell extends ConsumerWidget {
@@ -29,6 +30,7 @@ class CustomerHomeShell extends ConsumerWidget {
     final isGuest = supabase.auth.currentSession == null;
     final cartCount = ref.watch(cartProvider.select((c) =>
         c.values.fold(0, (sum, item) => sum + item.quantity)));
+    final cartIconKey = ref.watch(cartIconKeyProvider);
 
     const titles = ['DailyDrop', 'Your cart', 'Your orders', 'Account'];
     const screens = [
@@ -71,11 +73,13 @@ class CustomerHomeShell extends ConsumerWidget {
           ),
           NavigationDestination(
             icon: Badge(
+              key: cartIconKey,
               label: Text('$cartCount'),
               isLabelVisible: cartCount > 0,
               child: const Icon(Icons.shopping_cart_outlined),
             ),
             selectedIcon: Badge(
+              key: cartIconKey,
               label: Text('$cartCount'),
               isLabelVisible: cartCount > 0,
               child: const Icon(Icons.shopping_cart),

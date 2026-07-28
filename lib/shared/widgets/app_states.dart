@@ -5,13 +5,15 @@
 // give all of them the same shape, spacing and tone.
 
 import 'package:flutter/material.dart';
+import 'package:shimmer/shimmer.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
 
-/// Grey shimmer-free skeleton block. Deliberately a plain animated opacity
-/// rather than a sweeping gradient: cheaper on low-end phones, and it still
-/// reads as "content is coming".
-class SkeletonBox extends StatefulWidget {
+/// Grey skeleton block. Static on its own — `ProductGridSkeleton`/
+/// `ListSkeleton` wrap a whole batch of these in one `Shimmer.fromColors`
+/// sweep rather than each box animating independently, which reads as one
+/// coherent "loading" surface instead of a field of separately-pulsing tiles.
+class SkeletonBox extends StatelessWidget {
   final double? width;
   final double height;
   final double radius;
@@ -24,65 +26,39 @@ class SkeletonBox extends StatefulWidget {
   });
 
   @override
-  State<SkeletonBox> createState() => _SkeletonBoxState();
+  Widget build(BuildContext context) {
+    final base = Theme.of(context).colorScheme.surfaceContainerHighest;
+    return Container(
+      width: width,
+      height: height,
+      decoration: BoxDecoration(
+        color: base,
+        borderRadius: BorderRadius.circular(radius),
+      ),
+    );
+  }
 }
 
-class _SkeletonBoxState extends State<SkeletonBox>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 900),
-  );
-
-  @override
-  void initState() {
-    super.initState();
-    // MediaQuery isn't available yet here — didChangeDependencies (called
-    // right after, before the first build) corrects this to a steady
-    // mid-opacity if reduced-motion is on.
-    _controller.repeat(reverse: true);
-  }
-
-  bool get _reduceMotion =>
-      MediaQuery.maybeDisableAnimationsOf(context) ??
-      MediaQuery.maybeOf(context)?.disableAnimations ??
-      false;
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (_reduceMotion && _controller.isAnimating) {
-      _controller.stop();
-      _controller.value = 0.5;
-    } else if (!_reduceMotion && !_controller.isAnimating) {
-      _controller.repeat(reverse: true);
-    }
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
+/// Wraps skeleton content in a shimmer sweep, unless the platform/user has
+/// requested reduced motion — in which case the static grey boxes alone
+/// already read as "loading" without the animation.
+class _ShimmerSweep extends StatelessWidget {
+  final Widget child;
+  const _ShimmerSweep({required this.child});
 
   @override
   Widget build(BuildContext context) {
-    final base = Theme.of(context).colorScheme.surfaceContainerHighest;
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (context, _) {
-        return Opacity(
-          opacity: 0.45 + (_controller.value * 0.35),
-          child: Container(
-            width: widget.width,
-            height: widget.height,
-            decoration: BoxDecoration(
-              color: base,
-              borderRadius: BorderRadius.circular(widget.radius),
-            ),
-          ),
-        );
-      },
+    final reduceMotion = MediaQuery.maybeDisableAnimationsOf(context) ??
+        MediaQuery.maybeOf(context)?.disableAnimations ??
+        false;
+    if (reduceMotion) return child;
+
+    final theme = Theme.of(context);
+    return Shimmer.fromColors(
+      baseColor: theme.colorScheme.surfaceContainerHighest,
+      highlightColor: theme.colorScheme.surface,
+      period: const Duration(milliseconds: 1400),
+      child: child,
     );
   }
 }
@@ -96,37 +72,39 @@ class ProductGridSkeleton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final gutter = AppSpacing.gutterFor(MediaQuery.sizeOf(context).width);
-    return GridView.builder(
-      padding: EdgeInsets.all(gutter),
-      physics: const NeverScrollableScrollPhysics(),
-      shrinkWrap: true,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        mainAxisSpacing: AppSpacing.md,
-        crossAxisSpacing: AppSpacing.md,
-        childAspectRatio: 0.7,
-      ),
-      itemCount: count,
-      itemBuilder: (context, index) => const Card(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            AspectRatio(
-              aspectRatio: 1,
-              child: SkeletonBox(height: double.infinity, radius: 0),
-            ),
-            Padding(
-              padding: EdgeInsets.all(AppSpacing.sm),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  SkeletonBox(height: 12),
-                  SizedBox(height: AppSpacing.sm),
-                  SkeletonBox(height: 10, width: 60),
-                ],
+    return _ShimmerSweep(
+      child: GridView.builder(
+        padding: EdgeInsets.all(gutter),
+        physics: const NeverScrollableScrollPhysics(),
+        shrinkWrap: true,
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 2,
+          mainAxisSpacing: AppSpacing.md,
+          crossAxisSpacing: AppSpacing.md,
+          childAspectRatio: 0.7,
+        ),
+        itemCount: count,
+        itemBuilder: (context, index) => const Card(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              AspectRatio(
+                aspectRatio: 1,
+                child: SkeletonBox(height: double.infinity, radius: 0),
               ),
-            ),
-          ],
+              Padding(
+                padding: EdgeInsets.all(AppSpacing.sm),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SkeletonBox(height: 12),
+                    SizedBox(height: AppSpacing.sm),
+                    SkeletonBox(height: 10, width: 60),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -142,14 +120,16 @@ class ListSkeleton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final gutter = AppSpacing.gutterFor(MediaQuery.sizeOf(context).width);
-    return ListView.separated(
-      padding: EdgeInsets.all(gutter),
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: count,
-      separatorBuilder: (_, __) => const SizedBox(height: AppSpacing.md),
-      itemBuilder: (_, __) => SkeletonBox(
-        height: itemHeight,
-        radius: AppRadius.lg,
+    return _ShimmerSweep(
+      child: ListView.separated(
+        padding: EdgeInsets.all(gutter),
+        physics: const NeverScrollableScrollPhysics(),
+        itemCount: count,
+        separatorBuilder: (_, __) => const SizedBox(height: AppSpacing.md),
+        itemBuilder: (_, __) => SkeletonBox(
+          height: itemHeight,
+          radius: AppRadius.lg,
+        ),
       ),
     );
   }

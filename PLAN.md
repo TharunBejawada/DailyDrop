@@ -91,59 +91,59 @@ catalog browsing will show an error state instead of products.
 
 ---
 
-## Phase 2 — Home / Browse (Catalog) [partially implemented]
+## Phase 2 — Home / Browse (Catalog) [implemented]
 
 **Goal**: the grid is the highest-traffic screen — this is where "quick
 commerce" speed needs to be felt most.
 
-**Already done** (pulled forward during the Phase 1 journey redesign):
-a search field above the grocery/fruit-veg tabs (client-side filter over
-the already-fetched `catalogProvider` data — `catalogSearchQueryProvider`
-in `catalog_providers.dart`), and `CatalogScreen` itself was stripped of
-its own `Scaffold`/`AppBar` to become `CustomerHomeShell`'s Home-tab body.
-The floating cart bar now reads "View cart" and switches to the Cart tab
-(`homeTabIndexProvider`) instead of pushing `CheckoutScreen` directly.
-Everything below — skeletons, staggered grid entrance, fly-to-cart,
-pull-to-refresh — is still open.
+**Pulled forward during the Phase 1 journey redesign**: a search field
+above the grocery/fruit-veg tabs (client-side filter over the
+already-fetched `catalogProvider` data — `catalogSearchQueryProvider` in
+`catalog_providers.dart`), `CatalogScreen` stripped of its own
+`Scaffold`/`AppBar` to become `CustomerHomeShell`'s Home-tab body, and
+pull-to-refresh (`RefreshIndicator` wrapping the `CustomScrollView`,
+calling `ref.refresh(catalogProvider.future)`).
 
-- Skeleton/shimmer grid while `catalogProvider` is loading, replacing the
-  default `.when(loading: () => CircularProgressIndicator())` branch. Add
-  `shimmer` package for this (see dependency note above).
-- Staggered fade+slide-in for grid tiles on first load / tab switch
-  (grocery ↔ fruit_veg), via a small reusable `StaggeredFadeIn` wrapper widget
-  driven by tile index — no package needed, just delayed `AnimationController`s
-  or `flutter_staggered_animations`-style manual delay per tile.
-- Quantity stepper on each product tile gets a spring/bounce
-  (`AnimatedScale` on tap-down) instead of an instant `+`/`-` value change.
-- "Fly to cart" micro-animation: on add-to-cart tap, a small clone of the
-  product image arcs from the tile toward the floating cart bar
-  (`Overlay` + `AnimationController` driving a `Positioned` clone, removed on
-  completion). This is the single most recognizable Zepto/Blinkit signature
-  interaction.
-- Floating cart bar at the bottom of `CatalogScreen` (replacing the current
-  plain "Checkout" bar) animates its item-count/total in place
-  (`AnimatedSwitcher` on the count text) and slides up from off-screen the
-  first time the cart goes from empty → non-empty (`AnimatedSlide`), rather
-  than being permanently visible.
-- Pull-to-refresh on the grid (`RefreshIndicator` wrapping the `GridView`,
-  calling `ref.invalidate(catalogProvider)`) — cheap addition, matches the
-  category of app.
+**Implemented this phase**:
+- Shimmer skeleton grid: `SkeletonBox` (`app_states.dart`) went back to a
+  plain static block, and `ProductGridSkeleton`/`ListSkeleton` now wrap
+  their whole batch in one `Shimmer.fromColors` sweep (`_ShimmerSweep`) —
+  a single coherent loading surface rather than each box pulsing on its
+  own, and the first real use of the `shimmer` dependency. Skipped
+  entirely when `MediaQuery.disableAnimationsOf` is set.
+- Staggered fade+slide-in for grid tiles on first load / tab switch /
+  search filter, via `flutter_animate`'s `.animate().fadeIn().slideY()`
+  chained directly on each `ProductCard` in `_ProductGrid`'s
+  `itemBuilder`, delay scaled by index (capped at 12 tiles worth of
+  delay) — first real use of `flutter_animate` too.
+- Quantity stepper bounce: `_Bouncy` (now in
+  `animated_quantity_stepper.dart`) wraps the Add button and both stepper
+  buttons in a `GestureDetector` + `AnimatedScale`, scaling to 0.85 on
+  tap-down.
+- Fly-to-cart: `lib/shared/widgets/fly_to_cart_overlay.dart` — tapping Add
+  or the stepper's `+` arcs a small circular thumbnail of the product from
+  the tap point to the **bottom-nav cart icon**, not the floating cart bar
+  as originally scoped below. Deviation: the floating bar is hidden
+  exactly when this matters most (the first add to an empty cart), while
+  the bottom-nav icon (`cartIconKeyProvider`, attached in
+  `customer_home_shell.dart`) is always mounted.
+- Floating cart bar's item-count and price now cross-fade/slide via
+  `AnimatedSwitcher` (keyed by value) instead of snapping in place.
 
 **Files touched**
-- `lib/features/catalog/catalog_screen.dart` — grid loading branch, tile
-  layout, floating cart bar, `RefreshIndicator`.
-- `lib/features/catalog/catalog_providers.dart` — no logic change, just the
-  provider being invalidated by pull-to-refresh.
-- `lib/features/cart/cart_provider.dart` — no state-shape change; animations
-  react to existing `totalItems`/`totalPrice` getters.
-- `lib/shared/widgets/` — **NEW**: `shimmer_grid_tile.dart`,
-  `fly_to_cart_overlay.dart`, `animated_quantity_stepper.dart` (extracted so
-  Phase 3's detail view and Phase 4's cart can reuse the stepper).
-- `pubspec.yaml` — add `shimmer: ^3.0.0`.
+- `lib/features/catalog/catalog_screen.dart` — staggered tile entrance,
+  `AnimatedSwitcher` on cart-bar count/price.
+- `lib/shared/widgets/app_states.dart` — `SkeletonBox` simplified to
+  stateless, `_ShimmerSweep` added.
+- `lib/shared/widgets/` — **NEW**: `fly_to_cart_overlay.dart`,
+  `animated_quantity_stepper.dart` (extracted from `product_card.dart` so
+  Phase 3's detail sheet reuses the same control).
+- `lib/features/home/customer_home_shell.dart` — `cartIconKeyProvider` key
+  attached to the bottom-nav cart `Badge`.
 
 ---
 
-## Phase 3 — Product Detail
+## Phase 3 — Product Detail [implemented]
 
 **Goal**: today there is no dedicated product-detail screen — the grid tile
 *is* the whole interaction (image, name, price, stepper). Recommend adding a
@@ -162,11 +162,22 @@ matches how Zepto/Blinkit actually behave, not a traditional PDP.
   `catalogProvider` results) — n/a for customer view; no change needed since
   unavailable products never reach the customer grid.
 
+**Implemented**: `lib/features/catalog/product_detail_sheet.dart` —
+`showProductDetailSheet(context, product)` opens a `DraggableScrollableSheet`
+(62% initial / 40% min / 92% max height, transparent barrier so the sheet's
+own rounded top corners show through) with a drag handle, `Hero`-tagged image
+(`productImageHeroTag`, shared with the grid tile), name, unit, price, and
+the same `AnimatedQuantityStepper` used on the grid. `product_card.dart`
+wraps its tile image in `GestureDetector(onTap: () =>
+showProductDetailSheet(...))` + `Hero`. `AnimatedQuantityStepper` (Phase 2)
+was reused as-is with no changes needed.
+
 **Files touched**
-- `lib/features/catalog/catalog_screen.dart` — wrap tile image in `Hero`, wire
-  tap → `showModalBottomSheet`.
-- `lib/features/catalog/` — **NEW**: `product_detail_sheet.dart`.
-- `lib/shared/widgets/animated_quantity_stepper.dart` — reused from Phase 2.
+- `lib/features/catalog/product_detail_sheet.dart` — **NEW**.
+- `lib/shared/widgets/product_card.dart` — tile image wrapped in
+  `GestureDetector` + `Hero`, tap opens the sheet.
+- `lib/shared/widgets/animated_quantity_stepper.dart` — reused unchanged from
+  Phase 2.
 - `lib/models/product.dart` — no change (existing fields are sufficient).
 
 ---

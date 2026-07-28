@@ -85,7 +85,7 @@ Tokens live under `lib/core/theme/` — never hardcode a hex value, `EdgeInsets`
 
 **Motion** — `AppMotion` in `app_spacing.dart` defines the duration band: `fast`(150ms) `normal`(220ms) `slow`(300ms). Keep micro-interactions inside this band.
 
-**Animation packages**: `Hero` (built into Flutter, no package) for shared-element transitions; `flutter_animate` (^4.5.2) for declarative one-off/staggered animations; `shimmer` (^3.0.0) for skeleton loading states. All three were added for the Blinkit/Zepto-style redesign in `PLAN.md` — as of this writing they are dependencies but not yet wired into any screen, so don't assume existing usage without checking the screen file first.
+**Animation packages**: `Hero` (built into Flutter, no package) for shared-element transitions (grid tile ↔ `product_detail_sheet.dart`); `flutter_animate` (^4.5.2) for declarative one-off/staggered animations (staggered grid-tile entrance in `catalog_screen.dart`); `shimmer` (^3.0.0) for skeleton loading states (`_ShimmerSweep` wrapping `ProductGridSkeleton`/`ListSkeleton` in `app_states.dart`). All three were added for the Blinkit/Zepto-style redesign in `PLAN.md` and are now wired into the customer catalog/detail flow — not yet used anywhere in the admin screens.
 
 ## Known gaps
 

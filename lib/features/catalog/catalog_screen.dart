@@ -6,6 +6,7 @@
 // tabs + product grid + the floating "go to cart" bar all live here.
 
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../core/theme/app_spacing.dart';
@@ -204,7 +205,21 @@ class _ProductGrid extends StatelessWidget {
             // Key by id so cards keep identity as the list changes.
             key: ValueKey(products[index].id),
             product: products[index],
-          ),
+          )
+              // Staggered entrance on first load / tab switch / search filter
+              // — capped delay so a long grid doesn't make the tail wait ages.
+              .animate()
+              .fadeIn(
+                delay: Duration(milliseconds: 25 * index.clamp(0, 12)),
+                duration: AppMotion.normal,
+              )
+              .slideY(
+                begin: 0.08,
+                end: 0,
+                delay: Duration(milliseconds: 25 * index.clamp(0, 12)),
+                duration: AppMotion.normal,
+                curve: Curves.easeOutCubic,
+              ),
           childCount: products.length,
         ),
       ),
@@ -279,15 +294,33 @@ class _CartBar extends ConsumerWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Text(
-                                '$totalItems item${totalItems == 1 ? '' : 's'}',
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: AppSemantic.of(context).mutedText,
+                              AnimatedSwitcher(
+                                duration: AppMotion.fast,
+                                child: Text(
+                                  '$totalItems item${totalItems == 1 ? '' : 's'}',
+                                  key: ValueKey(totalItems),
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: AppSemantic.of(context).mutedText,
+                                  ),
                                 ),
                               ),
-                              Text(
-                                currency.format(totalPrice),
-                                style: theme.textTheme.titleMedium,
+                              AnimatedSwitcher(
+                                duration: AppMotion.fast,
+                                transitionBuilder: (child, animation) => FadeTransition(
+                                  opacity: animation,
+                                  child: SlideTransition(
+                                    position: Tween<Offset>(
+                                      begin: const Offset(0, 0.3),
+                                      end: Offset.zero,
+                                    ).animate(animation),
+                                    child: child,
+                                  ),
+                                ),
+                                child: Text(
+                                  currency.format(totalPrice),
+                                  key: ValueKey(totalPrice),
+                                  style: theme.textTheme.titleMedium,
+                                ),
                               ),
                             ],
                           ),

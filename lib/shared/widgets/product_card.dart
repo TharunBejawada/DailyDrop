@@ -10,7 +10,9 @@ import 'package:intl/intl.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
 import '../../features/cart/cart_provider.dart';
+import '../../features/catalog/product_detail_sheet.dart';
 import '../../models/product.dart';
+import 'animated_quantity_stepper.dart';
 import 'app_states.dart';
 
 class ProductCard extends ConsumerWidget {
@@ -41,17 +43,23 @@ class ProductCard extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Expanded(
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                _ProductImage(product: product),
-                if (inCart)
-                  Positioned(
-                    top: AppSpacing.sm,
-                    right: AppSpacing.sm,
-                    child: _QuantityPip(quantity: quantity),
+            child: GestureDetector(
+              onTap: () => showProductDetailSheet(context, product),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  Hero(
+                    tag: productImageHeroTag(product.id),
+                    child: _ProductImage(product: product),
                   ),
-              ],
+                  if (inCart)
+                    Positioned(
+                      top: AppSpacing.sm,
+                      right: AppSpacing.sm,
+                      child: _QuantityPip(quantity: quantity),
+                    ),
+                ],
+              ),
             ),
           ),
           Padding(
@@ -90,21 +98,7 @@ class ProductCard extends ConsumerWidget {
                 // The control gets its own full-width row rather than sharing
                 // one with the price: at 2 columns on a 375px phone there
                 // isn't room for a 48dp-tall stepper beside text.
-                // Add <-> stepper cross-fades, and both are kMinTapTarget tall
-                // so the swap never shifts surrounding layout.
-                AnimatedSwitcher(
-                  duration: AppMotion.fast,
-                  child: inCart
-                      ? _Stepper(
-                          key: const ValueKey('stepper'),
-                          product: product,
-                          quantity: quantity,
-                        )
-                      : _AddButton(
-                          key: const ValueKey('add'),
-                          product: product,
-                        ),
-                ),
+                AnimatedQuantityStepper(product: product),
               ],
             ),
           ),
@@ -182,108 +176,3 @@ class _QuantityPip extends StatelessWidget {
   }
 }
 
-class _AddButton extends ConsumerWidget {
-  final Product product;
-  const _AddButton({super.key, required this.product});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return FilledButton(
-      style: FilledButton.styleFrom(
-        minimumSize: const Size.fromHeight(kMinTapTarget),
-        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppRadius.sm),
-        ),
-      ),
-      onPressed: () => ref.read(cartProvider.notifier).add(product),
-      child: Semantics(
-        label: 'Add ${product.name} to cart',
-        excludeSemantics: true,
-        child: const Text('Add'),
-      ),
-    );
-  }
-}
-
-class _Stepper extends ConsumerWidget {
-  final Product product;
-  final int quantity;
-  const _Stepper({super.key, required this.product, required this.quantity});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
-
-    return Container(
-      height: kMinTapTarget,
-      decoration: BoxDecoration(
-        color: theme.colorScheme.primaryContainer,
-        borderRadius: BorderRadius.circular(AppRadius.sm),
-        border: Border.all(color: theme.colorScheme.primary),
-      ),
-      child: Row(
-        children: [
-          _StepperButton(
-            icon: Icons.remove,
-            // Label reflects what the button will actually do.
-            semanticLabel: quantity > 1
-                ? 'Remove one ${product.name}'
-                : 'Remove ${product.name} from cart',
-            onPressed: () => ref.read(cartProvider.notifier).remove(product),
-          ),
-          Expanded(
-            child: Text(
-              '$quantity',
-              textAlign: TextAlign.center,
-              style: theme.textTheme.labelLarge?.copyWith(
-                color: theme.colorScheme.onPrimaryContainer,
-              ),
-            ),
-          ),
-          _StepperButton(
-            icon: Icons.add,
-            semanticLabel: 'Add one more ${product.name}',
-            onPressed: () => ref.read(cartProvider.notifier).add(product),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _StepperButton extends StatelessWidget {
-  final IconData icon;
-  final String semanticLabel;
-  final VoidCallback onPressed;
-
-  const _StepperButton({
-    required this.icon,
-    required this.semanticLabel,
-    required this.onPressed,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Semantics(
-      button: true,
-      label: semanticLabel,
-      child: InkWell(
-        onTap: onPressed,
-        borderRadius: BorderRadius.circular(AppRadius.sm),
-        // A real 48x48dp target — this is the smallest control in the app and
-        // it gets tapped repeatedly, so it can't be undersized.
-        child: SizedBox(
-          width: kMinTapTarget,
-          height: kMinTapTarget,
-          child: Icon(
-            icon,
-            size: AppIconSize.md,
-            color: theme.colorScheme.onPrimaryContainer,
-          ),
-        ),
-      ),
-    );
-  }
-}
