@@ -182,7 +182,7 @@ was reused as-is with no changes needed.
 
 ---
 
-## Phase 4 — Cart [superseded by a full screen, not a sheet]
+## Phase 4 — Cart [superseded by a full screen, not a sheet; implemented]
 
 **Original goal** (superseded): there was no dedicated cart screen — the
 floating bar pushed straight to `CheckoutScreen`. Keep that navigation
@@ -194,13 +194,35 @@ pushed screen.
 notes) made a bottom-sheet review feel like the wrong shape — a persistent
 "Cart" tab fits a bottom-nav shell better than a sheet you'd have to
 re-trigger from the Home tab. `lib/features/cart/cart_screen.dart`
-(`CartScreen`) is a full-page line-item review (quantity steppers reusing
-`CartNotifier.add`/`remove`, empty state) living at tab index 1 in
+(`CartScreen`) is a full-page line-item review living at tab index 1 in
 `CustomerHomeShell`. Its "Proceed to checkout" button calls
 `requireLogin()` before pushing `CheckoutScreen` — same gate used
-everywhere else guest actions need auth. The animation ideas below
-(`AnimatedList` row removal, staggered stepper) are still open, just
-against this screen instead of a sheet.
+everywhere else guest actions need auth.
+
+**Implemented this phase**:
+- Row content now reuses the shared `AnimatedQuantityStepper` (Phase 2/3)
+  instead of the screen's own plain `_QtyStepper`, so bounce + fly-to-cart
+  feedback is consistent everywhere a stepper appears.
+- `CartScreen` converted to a `ConsumerStatefulWidget` driving an
+  `AnimatedList` keyed by product id — a natural fit since `CartNotifier`'s
+  state is already `Map<String, CartItem>`. Local `_order`/`_snapshot`
+  fields track the currently-rendered id list and cache each item's
+  last-known data; `ref.listen(cartProvider, ...)` diffs incoming state
+  against them each change to call `insertItem`/`removeItem` explicitly
+  (`AnimatedList` needs manual insert/remove calls — it doesn't diff a
+  rebuilt list itself). Removing the last unit of a product now shrinks +
+  fades the row out (`SizeTransition` + `FadeTransition`) instead of the
+  list snapping to its new length.
+- Because `CustomerHomeShell` swaps `body: screens[tabIndex]` directly (no
+  `IndexedStack`), `CartScreen` is disposed/recreated on every tab switch —
+  so this animation only ever plays for changes made while the Cart tab is
+  actually mounted; re-opening the tab after adding items elsewhere just
+  shows the current state with no animation, which is correct (nothing
+  visibly changed on this screen).
+- The whole body (item list vs. `EmptyState`) is wrapped in one top-level
+  `AnimatedSwitcher` so removing the last item crossfades into the empty
+  state once its row-removal animation finishes, rather than replacing the
+  screens instantly the moment the underlying cart map goes empty.
 
 - Tapping the floating cart bar's price/count area (not the "Checkout"
   action itself) expands a `DraggableScrollableSheet` cart review — line
