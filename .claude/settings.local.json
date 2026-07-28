@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(command -v uipro)",
+      "Read(//Users/tharunbejawada/.claude/plugins/**)",
+      "Bash(flutter analyze *)",
+      "Bash(./run_dev.sh emulator-5554 *)"
+    ]
+  },
+  "enabledPlugins": {
+    "ui-ux-pro-max@ui-ux-pro-max-skill": true
+  }
+}
