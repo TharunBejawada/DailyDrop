@@ -283,44 +283,54 @@ no cutoff left to animate a countdown toward.
 
 ---
 
-## Phase 6 — Order Tracking
+## Phase 6 — Order Tracking [implemented]
 
 **Goal**: `orderStatusFlow` (`placed → confirmed → out_for_delivery →
 delivered`, plus `cancelled`) already exists as a linear model in
 `admin_order_service.dart` — this phase is purely about visualizing that
 linear flow, both for customers and admin.
 
-- `CustomerOrdersScreen`: each order card gets an animated horizontal stepper
-  (dots/line connecting the 4 states, filled progressively) instead of a
-  plain status text/chip. Drive it off the existing `orderStatusFlow` list so
-  there's one source of truth for stage order.
-- Realtime status change (`customerOrdersRealtimeProvider` firing on an
-  `orders` UPDATE) animates the stepper advancing (`AnimatedContainer` fill +
-  a brief pulse/glow on the newly-reached stage) rather than the list just
-  silently re-rendering after `ref.invalidate`.
-- `AdminOrdersScreen`: the "advance status" action button gets a pressed-state
-  ripple/morph matching the customer-side stepper visuals, and new-order
-  Realtime alerts (`newOrderAlertProvider`) upgrade from a plain `SnackBar` to
-  a slide-in banner with a subtle bounce, still routing "View" to
-  `_tabIndex = 0` unchanged.
-- Cancelled state gets a distinct (not just red-text) treatment — e.g. a
-  strikethrough-stepper or greyed-out variant of the same stepper widget, so
-  cancellation reads as visually distinct rather than just another status
-  string.
+**Two bullets below were already satisfied by the time this phase
+started**: `CustomerOrdersScreen`'s `_StatusTracker` already drew the
+animated horizontal stepper (dots/line, `AnimatedContainer` fill) from
+earlier work — it just drove stage order off a locally-duplicated `_steps`
+list instead of `orderStatusFlow`, fixed below. Cancelled orders already got
+a distinct red callout replacing the tracker entirely (not just red text),
+so no separate stepper variant was needed.
+
+**Implemented this phase**:
+- `customer_orders_screen.dart`'s `_StatusTracker` now imports
+  `orderStatusFlow` from `admin_order_service.dart` instead of a duplicated
+  local list, so stage order has one real source of truth as originally
+  intended.
+- The current step's dot now does a quick scale pulse (`flutter_animate`,
+  re-keyed on `currentIndex`) whenever it's newly reached — replays on a
+  Realtime-driven status update, not just first paint, since the `dot`'s
+  `AnimatedContainer` fill-color transition alone (already present) didn't
+  read as an "event" the way a pulse does.
+- `admin_orders_screen.dart`'s `_AdminOrderCard` converted from
+  `ConsumerWidget` to `ConsumerStatefulWidget` so the "advance status" button
+  can hold local `_AdvanceState` (idle/advancing/success) and morph label →
+  spinner → checkmark via `AnimatedSwitcher`, mirroring the Phase 5 checkout
+  button pattern.
+- `admin_home_screen.dart`'s new-order alert replaced the plain `SnackBar`
+  with `_NewOrderBanner`, shown via `AnimatedSlide` (`Curves.easeOutBack` for
+  a bit of overshoot) + `AnimatedOpacity` layered over whichever tab is open,
+  auto-dismissing after 6s. "View" still routes to `_tabIndex = 0` and clears
+  the unseen badge, unchanged.
 
 **Files touched**
-- `lib/features/orders/customer_orders_screen.dart` — stepper UI, Realtime
-  update animation.
-- `lib/features/orders/customer_orders_provider.dart` — no logic change.
-- `lib/features/orders/customer_orders_realtime.dart` — no logic change
-  (still just invalidates + emits).
-- `lib/features/admin/orders/admin_orders_screen.dart` — action button
-  states, alert banner.
-- `lib/features/admin/orders/admin_order_service.dart` — `orderStatusFlow` /
-  `nextStatus()` reused as-is (single source of truth for the stepper).
-- `lib/features/admin/orders/order_realtime_service.dart` — no logic change.
-- `lib/shared/widgets/` — **NEW**: `order_status_stepper.dart` (shared
-  between customer and admin screens).
+- `lib/features/orders/customer_orders_screen.dart` — `orderStatusFlow`
+  import, pulse animation on the current step.
+- `lib/features/orders/customer_orders_provider.dart` — no change.
+- `lib/features/orders/customer_orders_realtime.dart` — no change.
+- `lib/features/admin/orders/admin_orders_screen.dart` — `_AdvanceState`,
+  button `AnimatedSwitcher`.
+- `lib/features/admin/orders/admin_order_service.dart` — no change
+  (`orderStatusFlow`/`nextStatus()` reused as-is).
+- `lib/features/admin/admin_home_screen.dart` — `_NewOrderBanner`, banner
+  state/timer replacing the SnackBar call.
+- `lib/features/admin/orders/order_realtime_service.dart` — no change.
 
 ---
 

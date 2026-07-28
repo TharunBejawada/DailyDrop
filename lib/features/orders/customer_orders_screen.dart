@@ -1,6 +1,7 @@
 // lib/features/orders/customer_orders_screen.dart
 
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../core/supabase_client.dart';
@@ -8,12 +9,14 @@ import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
 import '../../shared/widgets/app_states.dart';
 import '../../shared/widgets/status_badge.dart';
+import '../admin/orders/admin_order_service.dart' show orderStatusFlow;
 import '../auth/login_screen.dart';
 import '../home/home_tab_provider.dart';
 import 'customer_orders_provider.dart';
 import 'customer_orders_realtime.dart';
 
-const _steps = ['placed', 'confirmed', 'out_for_delivery', 'delivered'];
+// orderStatusFlow (admin_order_service.dart) is the single source of truth
+// for stage order — only the labels/icons below are presentation-only.
 const _stepLabels = ['Placed', 'Confirmed', 'On the way', 'Delivered'];
 const _stepIcons = [
   Icons.receipt_long_outlined,
@@ -38,14 +41,18 @@ class CustomerOrdersScreen extends ConsumerWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(Icons.receipt_long_outlined,
-                  size: AppIconSize.hero, color: AppSemantic.of(context).mutedText),
+                  size: AppIconSize.hero,
+                  color: AppSemantic.of(context).mutedText),
               const SizedBox(height: AppSpacing.lg),
-              Text('No orders to show', style: Theme.of(context).textTheme.titleMedium),
+              Text('No orders to show',
+                  style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: AppSpacing.xs),
               Text(
                 'Sign in to view and track your orders.',
                 textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyMedium
+                style: Theme.of(context)
+                    .textTheme
+                    .bodyMedium
                     ?.copyWith(color: AppSemantic.of(context).mutedText),
               ),
               const SizedBox(height: AppSpacing.xl),
@@ -83,7 +90,8 @@ class CustomerOrdersScreen extends ConsumerWidget {
             title: 'No orders yet',
             message: 'Once you place an order, you can track it here.',
             action: FilledButton.icon(
-              onPressed: () => ref.read(homeTabIndexProvider.notifier).state = 0,
+              onPressed: () =>
+                  ref.read(homeTabIndexProvider.notifier).state = 0,
               icon: const Icon(Icons.storefront_outlined, size: AppIconSize.md),
               label: const Text('Start shopping'),
             ),
@@ -92,7 +100,8 @@ class CustomerOrdersScreen extends ConsumerWidget {
         return RefreshIndicator(
           onRefresh: () => ref.refresh(customerOrdersProvider.future),
           child: ListView.separated(
-            padding: EdgeInsets.fromLTRB(gutter, gutter, gutter, AppSpacing.xxl),
+            padding:
+                EdgeInsets.fromLTRB(gutter, gutter, gutter, AppSpacing.xxl),
             itemCount: orders.length,
             separatorBuilder: (_, __) => const SizedBox(height: AppSpacing.md),
             itemBuilder: (context, index) => _OrderCard(
@@ -140,7 +149,8 @@ class _OrderCard extends StatelessWidget {
             const SizedBox(height: AppSpacing.xs),
             _MetaRow(
               icon: Icons.schedule_outlined,
-              text: DateFormat('d MMM, h:mm a').format(order.createdAt.toLocal()),
+              text:
+                  DateFormat('d MMM, h:mm a').format(order.createdAt.toLocal()),
             ),
             const SizedBox(height: AppSpacing.lg),
             if (isCancelled)
@@ -150,7 +160,8 @@ class _OrderCard extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: semantic.danger.withValues(alpha: 0.10),
                   borderRadius: BorderRadius.circular(AppRadius.md),
-                  border: Border.all(color: semantic.danger.withValues(alpha: 0.3)),
+                  border:
+                      Border.all(color: semantic.danger.withValues(alpha: 0.3)),
                 ),
                 child: Row(
                   children: [
@@ -213,7 +224,8 @@ class _MetaRow extends StatelessWidget {
             text,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.bodySmall?.copyWith(color: semantic.mutedText),
+            style:
+                theme.textTheme.bodySmall?.copyWith(color: semantic.mutedText),
           ),
         ),
       ],
@@ -232,7 +244,7 @@ class _StatusTracker extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final semantic = AppSemantic.of(context);
-    final currentIndex = _steps.indexOf(currentStatus);
+    final currentIndex = orderStatusFlow.indexOf(currentStatus);
 
     return Semantics(
       label: 'Order status: '
@@ -240,7 +252,7 @@ class _StatusTracker extends StatelessWidget {
       excludeSemantics: true,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: List.generate(_steps.length * 2 - 1, (i) {
+        children: List.generate(orderStatusFlow.length * 2 - 1, (i) {
           // Odd indices are the connector lines between dots.
           if (i.isOdd) {
             final done = (i ~/ 2) < currentIndex;
@@ -261,36 +273,57 @@ class _StatusTracker extends StatelessWidget {
           final isDone = stepIndex <= currentIndex;
           final isCurrent = stepIndex == currentIndex;
 
+          final dot = AnimatedContainer(
+            duration: AppMotion.normal,
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              color: isDone ? semantic.success : Colors.transparent,
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: isDone ? semantic.success : semantic.trackInactive,
+                width: 2,
+              ),
+            ),
+            child: Icon(
+              isDone ? Icons.check : _stepIcons[stepIndex],
+              size: AppIconSize.sm,
+              color: isDone ? theme.colorScheme.onPrimary : semantic.mutedText,
+            ),
+          );
+
           return SizedBox(
             width: 60,
             child: Column(
               children: [
-                AnimatedContainer(
-                  duration: AppMotion.normal,
-                  width: 28,
-                  height: 28,
-                  decoration: BoxDecoration(
-                    color: isDone ? semantic.success : Colors.transparent,
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: isDone ? semantic.success : semantic.trackInactive,
-                      width: 2,
-                    ),
-                  ),
-                  child: Icon(
-                    isDone ? Icons.check : _stepIcons[stepIndex],
-                    size: AppIconSize.sm,
-                    color: isDone
-                        ? theme.colorScheme.onPrimary
-                        : semantic.mutedText,
-                  ),
-                ),
+                // Re-keying on currentIndex replays the pulse each time a
+                // step newly becomes current (e.g. a Realtime status update),
+                // not just on first paint.
+                isCurrent
+                    ? dot
+                        .animate(key: ValueKey('pulse-$currentIndex'))
+                        .scale(
+                          begin: const Offset(1, 1),
+                          end: const Offset(1.25, 1.25),
+                          duration: AppMotion.fast,
+                          curve: Curves.easeOut,
+                        )
+                        .then()
+                        .scale(
+                          begin: const Offset(1.25, 1.25),
+                          end: const Offset(1, 1),
+                          duration: AppMotion.fast,
+                          curve: Curves.easeIn,
+                        )
+                    : dot,
                 const SizedBox(height: AppSpacing.xs),
                 Text(
                   _stepLabels[stepIndex],
                   textAlign: TextAlign.center,
                   style: theme.textTheme.labelSmall?.copyWith(
-                    color: isDone ? theme.colorScheme.onSurface : semantic.mutedText,
+                    color: isDone
+                        ? theme.colorScheme.onSurface
+                        : semantic.mutedText,
                     fontWeight: isCurrent ? FontWeight.w700 : FontWeight.w500,
                   ),
                 ),

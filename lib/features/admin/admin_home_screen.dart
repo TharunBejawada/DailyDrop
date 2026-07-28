@@ -22,17 +22,34 @@ class AdminHomeScreen extends ConsumerStatefulWidget {
 class _AdminHomeScreenState extends ConsumerState<AdminHomeScreen> {
   int _tabIndex = 0;
   int _unseenOrders = 0;
+  NewOrderAlert? _pendingAlert;
+  bool _bannerVisible = false;
+
+  Future<void> _showBanner(NewOrderAlert alert) async {
+    setState(() {
+      _pendingAlert = alert;
+      _bannerVisible = true;
+    });
+    await Future.delayed(const Duration(seconds: 6));
+    if (!mounted || _pendingAlert != alert) return;
+    setState(() => _bannerVisible = false);
+  }
+
+  void _viewFromBanner() {
+    setState(() {
+      _tabIndex = 0;
+      _unseenOrders = 0;
+      _bannerVisible = false;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final currency = NumberFormat.currency(locale: 'en_IN', symbol: '₹');
 
-    // Snackbars use an inverted surface, so the icon has to match the snackbar's
-    // own text color rather than the page foreground.
-    final onSnackBar = Theme.of(context).snackBarTheme.contentTextStyle?.color;
-
     // Fires every time a new order lands, regardless of which tab is open.
-    ref.listen<AsyncValue<NewOrderAlert>>(newOrderAlertProvider, (previous, next) {
+    ref.listen<AsyncValue<NewOrderAlert>>(newOrderAlertProvider,
+        (previous, next) {
       next.whenData((alert) {
         SystemSound.play(SystemSoundType.alert);
 
@@ -40,31 +57,7 @@ class _AdminHomeScreenState extends ConsumerState<AdminHomeScreen> {
           setState(() => _unseenOrders++);
         }
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                Icon(Icons.notifications_active_outlined,
-                    size: AppIconSize.md, color: onSnackBar),
-                const SizedBox(width: AppSpacing.sm),
-                Expanded(
-                  child: Text(
-                    'New ${OrderTypeChip.labelFor(alert.orderType)} '
-                    'order — ${currency.format(alert.totalAmount)}',
-                  ),
-                ),
-              ],
-            ),
-            duration: const Duration(seconds: 6),
-            action: SnackBarAction(
-              label: 'View',
-              onPressed: () => setState(() {
-                _tabIndex = 0;
-                _unseenOrders = 0;
-              }),
-            ),
-          ),
-        );
+        _showBanner(alert);
       });
     });
 
@@ -82,7 +75,8 @@ class _AdminHomeScreenState extends ConsumerState<AdminHomeScreen> {
             Text(titles[_tabIndex], style: theme.textTheme.titleLarge),
             Text(
               'Store admin',
-              style: theme.textTheme.bodySmall?.copyWith(color: semantic.mutedText),
+              style: theme.textTheme.bodySmall
+                  ?.copyWith(color: semantic.mutedText),
             ),
           ],
         ),
@@ -95,7 +89,32 @@ class _AdminHomeScreenState extends ConsumerState<AdminHomeScreen> {
           const SizedBox(width: AppSpacing.xs),
         ],
       ),
-      body: screens[_tabIndex],
+      body: Stack(
+        children: [
+          screens[_tabIndex],
+          if (_pendingAlert != null)
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: AnimatedSlide(
+                duration: AppMotion.normal,
+                curve: Curves.easeOutBack,
+                offset: _bannerVisible ? Offset.zero : const Offset(0, -1.2),
+                child: AnimatedOpacity(
+                  duration: AppMotion.normal,
+                  opacity: _bannerVisible ? 1 : 0,
+                  child: _NewOrderBanner(
+                    text:
+                        'New ${OrderTypeChip.labelFor(_pendingAlert!.orderType)} '
+                        'order — ${currency.format(_pendingAlert!.totalAmount)}',
+                    onView: _viewFromBanner,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _tabIndex,
         onDestinationSelected: (i) => setState(() {
@@ -122,6 +141,58 @@ class _AdminHomeScreenState extends ConsumerState<AdminHomeScreen> {
             label: 'Products',
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// New-order alert, slid/faded in by the `AnimatedSlide`/`AnimatedOpacity`
+/// pair in `_AdminHomeScreenState.build` — replaces what used to be a plain
+/// SnackBar so it reads while other tabs are open without stealing focus.
+class _NewOrderBanner extends StatelessWidget {
+  final String text;
+  final VoidCallback onView;
+  const _NewOrderBanner({required this.text, required this.onView});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return SafeArea(
+      bottom: false,
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.md),
+        child: Material(
+          color: theme.colorScheme.primary,
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          elevation: 4,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.lg,
+              vertical: AppSpacing.md,
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.notifications_active_outlined,
+                    size: AppIconSize.md, color: theme.colorScheme.onPrimary),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: Text(
+                    text,
+                    style: theme.textTheme.bodyMedium
+                        ?.copyWith(color: theme.colorScheme.onPrimary),
+                  ),
+                ),
+                TextButton(
+                  style: TextButton.styleFrom(
+                      foregroundColor: theme.colorScheme.onPrimary),
+                  onPressed: onView,
+                  child: const Text('View'),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

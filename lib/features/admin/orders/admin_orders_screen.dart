@@ -48,7 +48,8 @@ class AdminOrdersScreen extends ConsumerWidget {
         return RefreshIndicator(
           onRefresh: () => ref.refresh(adminOrdersProvider.future),
           child: ListView.separated(
-            padding: EdgeInsets.fromLTRB(gutter, gutter, gutter, AppSpacing.xxl),
+            padding:
+                EdgeInsets.fromLTRB(gutter, gutter, gutter, AppSpacing.xxl),
             itemCount: sorted.length + 1,
             separatorBuilder: (_, __) => const SizedBox(height: AppSpacing.md),
             itemBuilder: (context, index) {
@@ -87,7 +88,9 @@ class _QueueSummary extends StatelessWidget {
       child: Row(
         children: [
           Icon(
-            isClear ? Icons.check_circle_outline : Icons.pending_actions_outlined,
+            isClear
+                ? Icons.check_circle_outline
+                : Icons.pending_actions_outlined,
             size: AppIconSize.lg,
             color: isClear ? semantic.success : semantic.warning,
           ),
@@ -97,7 +100,8 @@ class _QueueSummary extends StatelessWidget {
               isClear
                   ? 'All caught up — nothing waiting.'
                   : '$activeCount order${activeCount == 1 ? '' : 's'} need attention',
-              style: theme.textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
+              style: theme.textTheme.bodyLarge
+                  ?.copyWith(fontWeight: FontWeight.w600),
             ),
           ),
         ],
@@ -106,11 +110,35 @@ class _QueueSummary extends StatelessWidget {
   }
 }
 
-class _AdminOrderCard extends ConsumerWidget {
+/// Drives the "advance status" button's morph. `success` is a brief hold
+/// (see `_advance`) so the confirmation reads even though the button's own
+/// row often disappears right after (canAct flips false, e.g. on delivered).
+enum _AdvanceState { idle, advancing, success }
+
+class _AdminOrderCard extends ConsumerStatefulWidget {
   final AdminOrder order;
   const _AdminOrderCard({super.key, required this.order});
 
-  Future<void> _confirmCancel(BuildContext context, WidgetRef ref) async {
+  @override
+  ConsumerState<_AdminOrderCard> createState() => _AdminOrderCardState();
+}
+
+class _AdminOrderCardState extends ConsumerState<_AdminOrderCard> {
+  _AdvanceState _state = _AdvanceState.idle;
+
+  Future<void> _advance() async {
+    setState(() => _state = _AdvanceState.advancing);
+    await ref
+        .read(adminOrderServiceProvider)
+        .advanceStatus(widget.order.id, widget.order.status);
+    if (!mounted) return;
+    setState(() => _state = _AdvanceState.success);
+    await Future.delayed(AppMotion.normal);
+    if (!mounted) return;
+    setState(() => _state = _AdvanceState.idle);
+  }
+
+  Future<void> _confirmCancel(BuildContext context) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -136,12 +164,13 @@ class _AdminOrderCard extends ConsumerWidget {
     );
 
     if (confirmed ?? false) {
-      await ref.read(adminOrderServiceProvider).cancelOrder(order.id);
+      await ref.read(adminOrderServiceProvider).cancelOrder(widget.order.id);
     }
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
+    final order = widget.order;
     final theme = Theme.of(context);
     final semantic = AppSemantic.of(context);
     final currency = NumberFormat.currency(locale: 'en_IN', symbol: '₹');
@@ -164,7 +193,8 @@ class _AdminOrderCard extends ConsumerWidget {
             // Address + phone are what you act on — keep them prominent.
             Text(
               order.addressLandmark,
-              style: theme.textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
+              style: theme.textTheme.bodyLarge
+                  ?.copyWith(fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: AppSpacing.xs),
             Row(
@@ -230,16 +260,41 @@ class _AdminOrderCard extends ConsumerWidget {
               Row(
                 children: [
                   Expanded(
-                    child: FilledButton.icon(
-                      onPressed: next == null
+                    child: FilledButton(
+                      onPressed: (next == null || _state != _AdvanceState.idle)
                           ? null
-                          : () => ref
-                              .read(adminOrderServiceProvider)
-                              .advanceStatus(order.id, order.status),
-                      icon: const Icon(Icons.arrow_forward, size: AppIconSize.md),
-                      iconAlignment: IconAlignment.end,
-                      label: Text(
-                        next == null ? 'Done' : orderStatusLabels[next] ?? next,
+                          : _advance,
+                      child: AnimatedSwitcher(
+                        duration: AppMotion.fast,
+                        child: switch (_state) {
+                          _AdvanceState.advancing => SizedBox(
+                              key: const ValueKey('advancing'),
+                              height: AppIconSize.md,
+                              width: AppIconSize.md,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: theme.colorScheme.onPrimary,
+                              ),
+                            ),
+                          _AdvanceState.success => Icon(
+                              Icons.check_rounded,
+                              key: const ValueKey('success'),
+                              color: theme.colorScheme.onPrimary,
+                              size: AppIconSize.md,
+                            ),
+                          _AdvanceState.idle => Row(
+                              key: const ValueKey('idle'),
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(next == null
+                                    ? 'Done'
+                                    : orderStatusLabels[next] ?? next),
+                                const SizedBox(width: AppSpacing.sm),
+                                const Icon(Icons.arrow_forward,
+                                    size: AppIconSize.md),
+                              ],
+                            ),
+                        },
                       ),
                     ),
                   ),
@@ -251,7 +306,7 @@ class _AdminOrderCard extends ConsumerWidget {
                         color: theme.colorScheme.error.withValues(alpha: 0.5),
                       ),
                     ),
-                    onPressed: () => _confirmCancel(context, ref),
+                    onPressed: () => _confirmCancel(context),
                     child: const Text('Cancel'),
                   ),
                 ],
@@ -288,7 +343,9 @@ class _PaymentTag extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
-            isCod ? Icons.currency_rupee : Icons.account_balance_wallet_outlined,
+            isCod
+                ? Icons.currency_rupee
+                : Icons.account_balance_wallet_outlined,
             size: AppIconSize.sm,
             color: color,
           ),
