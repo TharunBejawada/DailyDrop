@@ -6,6 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
+import '../../shared/widgets/double_back_to_exit.dart';
+import '../../shared/widgets/offline_banner.dart';
 import '../../shared/widgets/status_badge.dart';
 import '../auth/auth_service.dart';
 import 'orders/admin_orders_screen.dart';
@@ -66,81 +68,92 @@ class _AdminHomeScreenState extends ConsumerState<AdminHomeScreen> {
     final titles = ['Order queue', 'Products'];
     final screens = [const AdminOrdersScreen(), const AdminProductsScreen()];
 
-    return Scaffold(
-      appBar: AppBar(
-        titleSpacing: AppSpacing.lg,
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    return DoubleBackToExit(
+      child: Scaffold(
+        appBar: AppBar(
+          titleSpacing: AppSpacing.lg,
+          title: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(titles[_tabIndex], style: theme.textTheme.titleLarge),
+              Text(
+                'Store admin',
+                style: theme.textTheme.bodySmall
+                    ?.copyWith(color: semantic.mutedText),
+              ),
+            ],
+          ),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.logout_outlined),
+              tooltip: 'Sign out',
+              onPressed: () => ref.read(authServiceProvider).signOut(),
+            ),
+            const SizedBox(width: AppSpacing.xs),
+          ],
+        ),
+        body: Column(
           children: [
-            Text(titles[_tabIndex], style: theme.textTheme.titleLarge),
-            Text(
-              'Store admin',
-              style: theme.textTheme.bodySmall
-                  ?.copyWith(color: semantic.mutedText),
+            const OfflineBanner(),
+            Expanded(
+              child: Stack(
+                children: [
+                  screens[_tabIndex],
+                  if (_pendingAlert != null)
+                    Positioned(
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      child: AnimatedSlide(
+                        duration: AppMotion.normal,
+                        curve: Curves.easeOutBack,
+                        offset: _bannerVisible
+                            ? Offset.zero
+                            : const Offset(0, -1.2),
+                        child: AnimatedOpacity(
+                          duration: AppMotion.normal,
+                          opacity: _bannerVisible ? 1 : 0,
+                          child: _NewOrderBanner(
+                            text:
+                                'New ${OrderTypeChip.labelFor(_pendingAlert!.orderType)} '
+                                'order — ${currency.format(_pendingAlert!.totalAmount)}',
+                            onView: _viewFromBanner,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
             ),
           ],
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout_outlined),
-            tooltip: 'Sign out',
-            onPressed: () => ref.read(authServiceProvider).signOut(),
-          ),
-          const SizedBox(width: AppSpacing.xs),
-        ],
-      ),
-      body: Stack(
-        children: [
-          screens[_tabIndex],
-          if (_pendingAlert != null)
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              child: AnimatedSlide(
-                duration: AppMotion.normal,
-                curve: Curves.easeOutBack,
-                offset: _bannerVisible ? Offset.zero : const Offset(0, -1.2),
-                child: AnimatedOpacity(
-                  duration: AppMotion.normal,
-                  opacity: _bannerVisible ? 1 : 0,
-                  child: _NewOrderBanner(
-                    text:
-                        'New ${OrderTypeChip.labelFor(_pendingAlert!.orderType)} '
-                        'order — ${currency.format(_pendingAlert!.totalAmount)}',
-                    onView: _viewFromBanner,
-                  ),
-                ),
+        bottomNavigationBar: NavigationBar(
+          selectedIndex: _tabIndex,
+          onDestinationSelected: (i) => setState(() {
+            _tabIndex = i;
+            if (i == 0) _unseenOrders = 0;
+          }),
+          destinations: [
+            NavigationDestination(
+              icon: Badge(
+                label: Text('$_unseenOrders'),
+                isLabelVisible: _unseenOrders > 0,
+                child: const Icon(Icons.receipt_long_outlined),
               ),
+              selectedIcon: Badge(
+                label: Text('$_unseenOrders'),
+                isLabelVisible: _unseenOrders > 0,
+                child: const Icon(Icons.receipt_long),
+              ),
+              label: 'Orders',
             ),
-        ],
-      ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _tabIndex,
-        onDestinationSelected: (i) => setState(() {
-          _tabIndex = i;
-          if (i == 0) _unseenOrders = 0;
-        }),
-        destinations: [
-          NavigationDestination(
-            icon: Badge(
-              label: Text('$_unseenOrders'),
-              isLabelVisible: _unseenOrders > 0,
-              child: const Icon(Icons.receipt_long_outlined),
+            const NavigationDestination(
+              icon: Icon(Icons.inventory_2_outlined),
+              selectedIcon: Icon(Icons.inventory_2),
+              label: 'Products',
             ),
-            selectedIcon: Badge(
-              label: Text('$_unseenOrders'),
-              isLabelVisible: _unseenOrders > 0,
-              child: const Icon(Icons.receipt_long),
-            ),
-            label: 'Orders',
-          ),
-          const NavigationDestination(
-            icon: Icon(Icons.inventory_2_outlined),
-            selectedIcon: Icon(Icons.inventory_2),
-            label: 'Products',
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

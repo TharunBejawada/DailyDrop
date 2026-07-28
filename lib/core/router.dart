@@ -20,11 +20,62 @@ import '../features/admin/admin_home_screen.dart';
 import '../features/onboarding/onboarding_provider.dart';
 import '../features/onboarding/onboarding_screen.dart';
 
-class RootRouter extends ConsumerWidget {
+class RootRouter extends ConsumerStatefulWidget {
   const RootRouter({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<RootRouter> createState() => _RootRouterState();
+}
+
+class _RootRouterState extends ConsumerState<RootRouter>
+    with WidgetsBindingObserver {
+  bool _hasBeenBackgrounded = false;
+  bool _showResumeFlash = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused) {
+      _hasBeenBackgrounded = true;
+    } else if (state == AppLifecycleState.resumed && _hasBeenBackgrounded) {
+      // Shortened version of the Phase 1 splash crossfade — just a quick
+      // fade back in, not the full logo animation, since this is a resume
+      // rather than a first launch.
+      _hasBeenBackgrounded = false;
+      setState(() => _showResumeFlash = true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        _buildRoutedContent(context),
+        if (_showResumeFlash)
+          Positioned.fill(
+            child: IgnorePointer(
+              child: ColoredBox(color: Theme.of(context).colorScheme.surface)
+                  .animate(onComplete: (_) {
+                if (mounted) setState(() => _showResumeFlash = false);
+              }).fadeOut(duration: AppMotion.normal, curve: Curves.easeOut),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildRoutedContent(BuildContext context) {
     return StreamBuilder<AuthState>(
       stream: supabase.auth.onAuthStateChange,
       builder: (context, snapshot) {
@@ -163,7 +214,9 @@ class _SplashScreen extends StatelessWidget {
                 strokeWidth: 2,
                 color: semantic.mutedText,
               ),
-            ).animate(delay: AppMotion.normal).fadeIn(duration: AppMotion.normal),
+            )
+                .animate(delay: AppMotion.normal)
+                .fadeIn(duration: AppMotion.normal),
           ],
         ),
       ),
@@ -220,7 +273,8 @@ class _ErrorScreen extends StatelessWidget {
                   const SizedBox(height: AppSpacing.xl),
                   FilledButton.icon(
                     onPressed: () => supabase.auth.signOut(),
-                    icon: const Icon(Icons.logout_outlined, size: AppIconSize.md),
+                    icon:
+                        const Icon(Icons.logout_outlined, size: AppIconSize.md),
                     label: const Text('Sign out and try again'),
                   ),
                 ],

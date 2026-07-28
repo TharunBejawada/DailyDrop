@@ -18,7 +18,9 @@ import '../cart/cart_provider.dart';
 import '../cart/cart_screen.dart';
 import '../catalog/catalog_screen.dart';
 import '../orders/customer_orders_screen.dart';
+import '../../shared/widgets/double_back_to_exit.dart';
 import '../../shared/widgets/fly_to_cart_overlay.dart';
+import '../../shared/widgets/offline_banner.dart';
 import 'home_tab_provider.dart';
 
 class CustomerHomeShell extends ConsumerWidget {
@@ -28,8 +30,8 @@ class CustomerHomeShell extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final tabIndex = ref.watch(homeTabIndexProvider);
     final isGuest = supabase.auth.currentSession == null;
-    final cartCount = ref.watch(cartProvider.select((c) =>
-        c.values.fold(0, (sum, item) => sum + item.quantity)));
+    final cartCount = ref.watch(cartProvider
+        .select((c) => c.values.fold(0, (sum, item) => sum + item.quantity)));
     final cartIconKey = ref.watch(cartIconKeyProvider);
 
     const titles = ['DailyDrop', 'Your cart', 'Your orders', 'Account'];
@@ -40,63 +42,70 @@ class CustomerHomeShell extends ConsumerWidget {
       AccountScreen(),
     ];
 
-    return Scaffold(
-      appBar: AppBar(
-        titleSpacing: AppSpacing.lg,
-        title: tabIndex == 0
-            ? const _DeliveryHeader()
-            : Text(titles[tabIndex]),
-        actions: [
-          if (isGuest && tabIndex != 3)
-            Padding(
-              padding: const EdgeInsets.only(right: AppSpacing.sm),
-              child: FilledButton.tonalIcon(
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const LoginScreen()),
+    return DoubleBackToExit(
+      child: Scaffold(
+        appBar: AppBar(
+          titleSpacing: AppSpacing.lg,
+          title:
+              tabIndex == 0 ? const _DeliveryHeader() : Text(titles[tabIndex]),
+          actions: [
+            if (isGuest && tabIndex != 3)
+              Padding(
+                padding: const EdgeInsets.only(right: AppSpacing.sm),
+                child: FilledButton.tonalIcon(
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const LoginScreen()),
+                  ),
+                  icon: const Icon(Icons.login_outlined, size: AppIconSize.sm),
+                  label: const Text('Sign in'),
                 ),
-                icon: const Icon(Icons.login_outlined, size: AppIconSize.sm),
-                label: const Text('Sign in'),
               ),
+          ],
+        ),
+        body: Column(
+          children: [
+            const OfflineBanner(),
+            Expanded(child: screens[tabIndex]),
+          ],
+        ),
+        bottomNavigationBar: NavigationBar(
+          selectedIndex: tabIndex,
+          onDestinationSelected: (i) =>
+              ref.read(homeTabIndexProvider.notifier).state = i,
+          destinations: [
+            const NavigationDestination(
+              icon: Icon(Icons.storefront_outlined),
+              selectedIcon: Icon(Icons.storefront),
+              label: 'Home',
             ),
-        ],
-      ),
-      body: screens[tabIndex],
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: tabIndex,
-        onDestinationSelected: (i) => ref.read(homeTabIndexProvider.notifier).state = i,
-        destinations: [
-          const NavigationDestination(
-            icon: Icon(Icons.storefront_outlined),
-            selectedIcon: Icon(Icons.storefront),
-            label: 'Home',
-          ),
-          NavigationDestination(
-            icon: Badge(
-              key: cartIconKey,
-              label: Text('$cartCount'),
-              isLabelVisible: cartCount > 0,
-              child: const Icon(Icons.shopping_cart_outlined),
+            NavigationDestination(
+              icon: Badge(
+                key: cartIconKey,
+                label: Text('$cartCount'),
+                isLabelVisible: cartCount > 0,
+                child: const Icon(Icons.shopping_cart_outlined),
+              ),
+              selectedIcon: Badge(
+                key: cartIconKey,
+                label: Text('$cartCount'),
+                isLabelVisible: cartCount > 0,
+                child: const Icon(Icons.shopping_cart),
+              ),
+              label: 'Cart',
             ),
-            selectedIcon: Badge(
-              key: cartIconKey,
-              label: Text('$cartCount'),
-              isLabelVisible: cartCount > 0,
-              child: const Icon(Icons.shopping_cart),
+            const NavigationDestination(
+              icon: Icon(Icons.receipt_long_outlined),
+              selectedIcon: Icon(Icons.receipt_long),
+              label: 'Orders',
             ),
-            label: 'Cart',
-          ),
-          const NavigationDestination(
-            icon: Icon(Icons.receipt_long_outlined),
-            selectedIcon: Icon(Icons.receipt_long),
-            label: 'Orders',
-          ),
-          const NavigationDestination(
-            icon: Icon(Icons.person_outline),
-            selectedIcon: Icon(Icons.person),
-            label: 'Account',
-          ),
-        ],
+            const NavigationDestination(
+              icon: Icon(Icons.person_outline),
+              selectedIcon: Icon(Icons.person),
+              label: 'Account',
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -118,7 +127,8 @@ class _DeliveryHeader extends ConsumerWidget {
     final addressLabel = isGuest
         ? null
         : ref.watch(addressesProvider).maybeWhen(
-              data: (addresses) => addresses.isNotEmpty ? addresses.first.landmark : null,
+              data: (addresses) =>
+                  addresses.isNotEmpty ? addresses.first.landmark : null,
               orElse: () => null,
             );
 
@@ -128,14 +138,17 @@ class _DeliveryHeader extends ConsumerWidget {
       children: [
         Row(
           children: [
-            Icon(Icons.location_on_outlined, size: AppIconSize.sm, color: theme.colorScheme.primary),
+            Icon(Icons.location_on_outlined,
+                size: AppIconSize.sm, color: theme.colorScheme.primary),
             const SizedBox(width: AppSpacing.xxs),
             Expanded(
               child: Text(
-                addressLabel ?? (isGuest ? 'Browsing as guest' : 'Add a delivery address'),
+                addressLabel ??
+                    (isGuest ? 'Browsing as guest' : 'Add a delivery address'),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodySmall?.copyWith(color: semantic.mutedText),
+                style: theme.textTheme.bodySmall
+                    ?.copyWith(color: semantic.mutedText),
               ),
             ),
           ],
@@ -156,11 +169,13 @@ class _DeliveryHeader extends ConsumerWidget {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.bolt, size: AppIconSize.sm, color: semantic.success),
+                  Icon(Icons.bolt,
+                      size: AppIconSize.sm, color: semantic.success),
                   const SizedBox(width: AppSpacing.xxs),
                   Text(
                     '30–45 min',
-                    style: theme.textTheme.labelSmall?.copyWith(color: semantic.success),
+                    style: theme.textTheme.labelSmall
+                        ?.copyWith(color: semantic.success),
                   ),
                 ],
               ),

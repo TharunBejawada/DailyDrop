@@ -334,7 +334,7 @@ so no separate stepper variant was needed.
 
 ---
 
-## Phase 7 — App-close / Background State
+## Phase 7 — App-close / Background State [implemented]
 
 **Goal**: nothing today observes app lifecycle — no reconnect banner, no
 resume animation, no exit confirmation. Scope this phase to UI/animation only
@@ -342,37 +342,46 @@ resume animation, no exit confirmation. Scope this phase to UI/animation only
 in-memory-only and cleared on restart is an explicit, documented design
 choice in CLAUDE.md, not a bug to fix here).
 
-- Add a `WidgetsBindingObserver` (likely on `RootRouter` or a thin new
-  wrapper around it in `main.dart`) to detect `AppLifecycleState.paused`/
-  `resumed`/`inactive`.
-- On resume from background, replay a shortened version of the Phase 1 splash
-  crossfade (skip the full logo animation, just a quick fade) rather than
-  popping back in with no transition.
-- Connectivity loss (already tracked via `connectivity_plus`, currently
-  unused for UI per the codebase investigation) gets a slide-down banner
-  ("You're offline — showing saved data") using `AnimatedSlide`, shown on
-  `CatalogScreen`/`CustomerOrdersScreen`/`AdminOrdersScreen` — ties an
-  existing unused dependency to actual UI for the first time.
-- Android back-button on `CatalogScreen`/`AdminHomeScreen` (the two "root"
-  post-login screens) gets a double-back-to-exit toast pattern
-  (`PopScope`/`WillPopScope` + a brief `AnimatedOpacity` toast), matching the
-  quick-commerce app convention instead of exiting instantly on first back
-  press.
+**Adapted from the original per-screen scope below**: by this phase,
+`CatalogScreen` no longer owns a `Scaffold` (Phase 1/2's bottom-nav
+restructure made it a plain tab body), so "offline banner on
+CatalogScreen/CustomerOrdersScreen/AdminOrdersScreen" and "back-button toast
+on CatalogScreen/AdminHomeScreen" were re-targeted at the shell level —
+`CustomerHomeShell` and `AdminHomeScreen` are each a single Scaffold their
+tabs swap inside, so mounting both concerns there once covers every tab
+instead of duplicating into individual screens.
+
+**Implemented this phase**:
+- `WidgetsBindingObserver` added directly to `RootRouter` (converted to
+  `ConsumerStatefulWidget`). A `_hasBeenBackgrounded` flag ensures the
+  resume-flash only plays after an actual background→foreground transition,
+  never on cold start. The flash itself is a `flutter_animate` one-shot
+  `.fadeOut()` on a surface-colored `ColoredBox` overlay — a quick fade
+  rather than replaying the full splash logo.
+- `lib/shared/widgets/offline_banner.dart` (**NEW**) — `connectivityProvider`
+  (a `StreamProvider<bool>` combining an initial `checkConnectivity()` call
+  with `onConnectivityChanged`) plus `OfflineBanner`, which grows/shrinks in
+  place via `AnimatedSize` so it never reserves phantom space when online.
+  Mounted once at the top of each shell's body `Column`.
+- `lib/shared/widgets/double_back_to_exit.dart` (**NEW**) — wraps both
+  shells' `Scaffold`s in `PopScope(canPop: false)`; a second back press
+  within 2s calls `SystemNavigator.pop()`, otherwise shows a brief
+  "Press back again to exit" toast (`AnimatedOpacity`). Screens pushed on
+  top of a shell (checkout, login, ...) are unaffected — `PopScope` only
+  intercepts pops of its own route.
 
 **Files touched**
-- `lib/main.dart` — `WidgetsBindingObserver` wiring (new stateful wrapper or
-  added directly to `GroceryApp`).
-- `lib/core/router.dart` — resume-crossfade hook into `RootRouter`.
-- `lib/features/catalog/catalog_screen.dart` — offline banner, back-button
-  toast.
-- `lib/features/admin/admin_home_screen.dart` — offline banner, back-button
-  toast.
-- `lib/features/orders/customer_orders_screen.dart` — offline banner.
-- `lib/features/admin/orders/admin_orders_screen.dart` — offline banner.
+- `lib/core/router.dart` — `RootRouter` → `ConsumerStatefulWidget`,
+  `WidgetsBindingObserver`, resume-flash overlay.
+- `lib/features/home/customer_home_shell.dart` — wrapped in
+  `DoubleBackToExit`, `OfflineBanner` added to the body.
+- `lib/features/admin/admin_home_screen.dart` — same two additions.
 - `lib/shared/widgets/` — **NEW**: `offline_banner.dart`,
   `double_back_to_exit.dart`.
-- `pubspec.yaml` — no new dependency; `connectivity_plus` is already present
-  and unused for UI today.
+- `pubspec.yaml` — no new dependency; `connectivity_plus` was already
+  present and unused for UI before this phase.
+
+All seven phases of this redesign are now implemented.
 
 ---
 
