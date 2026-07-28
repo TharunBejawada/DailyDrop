@@ -244,44 +244,42 @@ everywhere else guest actions need auth.
 
 ---
 
-## Phase 5 — Checkout
+## Phase 5 — Checkout [implemented]
 
 **Goal**: checkout today is a single screen with an inline address dialog and
 a blocking payment flow. Make the multi-step nature (address → slot → total →
 pay) read as a sequence instead of a flat form.
 
-- Delivery slot display (from `groceryDeliverySlot()`/`fruitVegDeliverySlot()`
-  in `delivery_slot.dart`) gets a small animated countdown/badge when close to
-  `fvCutoffHour` (21:00) — e.g. an `AnimatedContainer` color shift from
-  neutral to warning as cutoff approaches, reusing the existing pure
-  functions with no logic change.
-- Address selector: replace the current dialog-only add-address flow's static
-  list with an animated radio-card selection (`AnimatedContainer` border/
-  elevation on selection) for existing addresses from `addressesProvider`.
-- "Place order" button gets a loading-state morph (button → spinner → check
-  mark) driven by the existing async `OrderService.placeOrder()` /
-  `RazorpayService` flow — no change to the non-rollback payment semantics,
-  purely visual state during the wait.
-- Order-placed confirmation: replace the current `showDialog` with a
-  full-bleed animated success state (checkmark draw-in via
-  `AnimatedContainer`/`CustomPainter` or a simple `ScaleTransition` bounce) —
-  still pops back to `CheckoutScreen` per existing behavior, or optionally
-  now pops all the way to `CatalogScreen` and clears the cart (`clear()` on
-  `CartNotifier`) as part of this phase, since today nothing clears the cart
-  after a successful order — worth confirming with the user whether that's
-  in scope here since it's a behavior change, not just visual.
+**Two bullets below were already satisfied or no longer apply by the time
+this phase started**: the address selector already used an `AnimatedContainer`
+border/color transition on selection (`_SelectableTile`, built earlier) — no
+new work needed. The delivery-slot cutoff countdown doesn't apply anymore —
+`delivery_slot.dart` dropped the `fvCutoffHour` / next-morning pre-order model
+back in Phase 1 (grocery and fruit/veg both fulfill same-day now), so there's
+no cutoff left to animate a countdown toward.
+
+**Implemented this phase**:
+- "Place order" button morph: `_PlaceOrderState` enum (`idle`/`placing`/
+  `success`) drives an `AnimatedSwitcher` in the button's child between the
+  label text, a spinner, and a checkmark icon.
+- Full-bleed success confirmation: `_OrderSuccessOverlay` (a `Positioned.fill`
+  layered via `Stack` over the screen's `Scaffold`) shows a `flutter_animate`
+  checkmark scale-in (`Curves.elasticOut`) + "Order placed!" fade-in, held for
+  `AppMotion.slow * 3` (~900ms) before the existing navigation runs — replaces
+  the old instant `SnackBar`-and-pop. Applies to both the COD path and the
+  post-payment UPI path (`onSuccess` callback), via a shared
+  `_showSuccessAndFinish()` helper.
+- Cart-clear-on-success (the phase's one open question) turned out to already
+  be implemented in `_finishCheckout()` from earlier work — not new this
+  phase, just confirmed still in place.
 
 **Files touched**
-- `lib/features/checkout/checkout_screen.dart` — address selector UI, slot
-  badge, button loading-state, confirmation UI.
-- `lib/features/checkout/delivery_slot.dart` — no logic change (pure
-  functions consumed as-is).
-- `lib/features/checkout/order_service.dart` — only touched if cart-clear on
-  success is added (calls `ref.read(cartProvider.notifier).clear()`).
-- `lib/features/checkout/razorpay_service.dart` — only touched to surface
-  intermediate payment states (`onPaymentSuccess`/`onPaymentError` callbacks)
-  to the new button-morph UI; no change to the client-side-only trade-off.
-- `lib/features/addresses/address_provider.dart` — no logic change.
+- `lib/features/checkout/checkout_screen.dart` — `_PlaceOrderState`, button
+  `AnimatedSwitcher`, `_OrderSuccessOverlay`, `_showSuccessAndFinish()`.
+- `lib/features/checkout/delivery_slot.dart` — no change.
+- `lib/features/checkout/order_service.dart` — no change.
+- `lib/features/checkout/razorpay_service.dart` — no change.
+- `lib/features/addresses/address_provider.dart` — no change.
 
 ---
 
@@ -370,15 +368,6 @@ choice in CLAUDE.md, not a bug to fix here).
 
 ## Open questions before implementation starts
 
-1. **Phase 5 cart-clear-on-success** is a behavior change, not purely visual
-   — confirm whether the redesign should also fix "cart survives a
-   successful order" while touching that screen anyway, or strictly leave
-   behavior untouched and animation-only.
-2. **Phase 3's bottom-sheet-not-a-screen** call is a design recommendation
-   matching real Zepto/Blinkit UX, not a hard requirement — confirm before
-   building if a full pushed `ProductDetailScreen` is preferred instead for
-   consistency with the rest of the app's `Navigator.push` pattern.
-3. **`shimmer` package** is the one new dependency proposed across all seven
-   phases — confirm it's acceptable to add, or whether Phase 2's skeleton
-   loading should be hand-rolled with `AnimatedContainer` opacity pulsing
-   instead to keep the dependency count at zero.
+All three resolved during Phases 1-5: cart-clear-on-success was implemented
+in `_finishCheckout()`, Phase 3 used the bottom-sheet design as recommended,
+and `shimmer` was added as planned.

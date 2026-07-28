@@ -2,6 +2,7 @@
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:razorpay_flutter/razorpay_flutter.dart';
@@ -17,6 +18,11 @@ import 'delivery_slot.dart';
 import 'order_service.dart';
 import 'razorpay_service.dart';
 
+/// Drives the "Place order" button's morph and the full-bleed confirmation.
+/// `success` is a brief hold (see `_showSuccessAndFinish`) before the screen
+/// navigates away — not a persisted state.
+enum _PlaceOrderState { idle, placing, success }
+
 class CheckoutScreen extends ConsumerStatefulWidget {
   const CheckoutScreen({super.key});
 
@@ -28,7 +34,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   String? _selectedAddressId;
   // Web has no Razorpay support, so it defaults to (and stays on) COD.
   String _paymentMethod = kIsWeb ? 'cod' : 'upi';
-  bool _placingOrder = false;
+  _PlaceOrderState _orderState = _PlaceOrderState.idle;
   final _razorpayService = RazorpayService();
 
   @override
@@ -79,7 +85,8 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                 TextFormField(
                   controller: phoneController,
                   keyboardType: TextInputType.phone,
-                  decoration: const InputDecoration(labelText: 'Contact phone number'),
+                  decoration:
+                      const InputDecoration(labelText: 'Contact phone number'),
                   validator: (v) => (v == null || v.trim().length < 10)
                       ? 'Enter a valid 10-digit number'
                       : null,
@@ -124,9 +131,10 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       return;
     }
 
-    setState(() => _placingOrder = true);
+    setState(() => _orderState = _PlaceOrderState.placing);
     final cart = ref.read(cartProvider);
-    final totalAmount = cart.values.fold(0.0, (sum, item) => sum + item.subtotal);
+    final totalAmount =
+        cart.values.fold(0.0, (sum, item) => sum + item.subtotal);
 
     try {
       final orderIds = await ref.read(orderServiceProvider).placeOrder(
@@ -136,7 +144,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
           );
 
       if (_paymentMethod == 'cod') {
-        _finishCheckout();
+        await _showSuccessAndFinish();
         return;
       }
 
@@ -151,15 +159,16 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
         contactPhone: address.phone,
         onSuccess: (PaymentSuccessResponse response) async {
           for (final orderId in orderIds) {
-            await supabase.rpc('mark_order_paid', params: {'order_id': orderId});
+            await supabase
+                .rpc('mark_order_paid', params: {'order_id': orderId});
           }
-          _finishCheckout();
+          await _showSuccessAndFinish();
         },
         onError: (PaymentFailureResponse response) {
           // Orders already exist (payment_status stays 'pending') — nothing
           // to roll back. Let the customer know clearly what happened.
           if (mounted) {
-            setState(() => _placingOrder = false);
+            setState(() => _orderState = _PlaceOrderState.idle);
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(
@@ -174,24 +183,31 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       );
     } on Object catch (e) {
       if (mounted) {
-        setState(() => _placingOrder = false);
+        setState(() => _orderState = _PlaceOrderState.idle);
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text('Could not place order: $e')));
       }
     }
   }
 
+  /// Holds on a full-bleed checkmark (see `_OrderSuccessOverlay`) just long
+  /// enough to read as a confirmation, then runs the existing navigation.
+  /// Replaces what used to be an instant SnackBar-and-pop.
+  Future<void> _showSuccessAndFinish() async {
+    if (!mounted) return;
+    setState(() => _orderState = _PlaceOrderState.success);
+    await Future.delayed(AppMotion.slow * 3);
+    if (!mounted) return;
+    _finishCheckout();
+  }
+
   void _finishCheckout() {
     ref.read(cartProvider.notifier).clear();
     if (mounted) {
-      setState(() => _placingOrder = false);
       // Jump to the Orders tab so the new order's tracker is right there —
       // matches how Blinkit/Zepto confirm a placed order.
       ref.read(homeTabIndexProvider.notifier).state = 2;
       Navigator.of(context).popUntil((route) => route.isFirst);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Order placed! Track it below.')),
-      );
     }
   }
 
@@ -227,147 +243,218 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       );
     }
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('Checkout')),
-      body: ListView(
-        padding: EdgeInsets.fromLTRB(gutter, gutter, gutter, AppSpacing.xxl),
-        children: [
-          _OrderGroupSummary(
-            orderType: orderType,
-            slotLabel: deliverySlot().label,
-            items: items,
-            currency: currency,
-          ),
-          const SizedBox(height: AppSpacing.xl),
-          const _SectionTitle(
-            icon: Icons.location_on_outlined,
-            title: 'Delivery address',
-          ),
-          const SizedBox(height: AppSpacing.md),
-          addressesAsync.when(
-            loading: () => const ListSkeleton(count: 2, itemHeight: 64),
-            error: (e, _) => ErrorState(
-              title: 'Could not load your addresses',
-              error: e,
-              onRetry: () => ref.invalidate(addressesProvider),
-            ),
-            data: (addresses) {
-              _selectedAddressId ??= addresses.isNotEmpty ? addresses.first.id : null;
-
-              if (addresses.isEmpty) {
-                return _Callout(
-                  icon: Icons.add_location_alt_outlined,
-                  color: semantic.warning,
-                  text: 'Add a delivery address to continue.',
-                  action: TextButton(
-                    onPressed: _showAddAddressDialog,
-                    child: const Text('Add address'),
-                  ),
-                );
-              }
-
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  for (final address in addresses)
-                    _SelectableTile(
-                      selected: _selectedAddressId == address.id,
-                      onTap: () => setState(() => _selectedAddressId = address.id),
-                      title: address.label,
-                      subtitle: '${address.landmark}\n${address.phone}',
-                      leading: Icons.location_on_outlined,
-                    ),
-                  const SizedBox(height: AppSpacing.sm),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: TextButton.icon(
-                      onPressed: _showAddAddressDialog,
-                      icon: const Icon(Icons.add, size: AppIconSize.md),
-                      label: const Text('Add new address'),
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
-          const SizedBox(height: AppSpacing.xl),
-          const _SectionTitle(
-            icon: Icons.payments_outlined,
-            title: 'Payment method',
-          ),
-          const SizedBox(height: AppSpacing.md),
-          if (!kIsWeb)
-            _SelectableTile(
-              selected: _paymentMethod == 'upi',
-              onTap: () => setState(() => _paymentMethod = 'upi'),
-              title: 'UPI / Card',
-              subtitle: 'Pay now, securely via Razorpay',
-              leading: Icons.account_balance_wallet_outlined,
-            )
-          else
-            Padding(
-              padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-              child: _Callout(
-                icon: Icons.info_outline,
-                color: semantic.mutedText,
-                text: 'Online payment is available on the Android app. '
-                    'On web, Cash on Delivery only for now.',
+    return Stack(
+      children: [
+        Scaffold(
+          appBar: AppBar(title: const Text('Checkout')),
+          body: ListView(
+            padding:
+                EdgeInsets.fromLTRB(gutter, gutter, gutter, AppSpacing.xxl),
+            children: [
+              _OrderGroupSummary(
+                orderType: orderType,
+                slotLabel: deliverySlot().label,
+                items: items,
+                currency: currency,
               ),
-            ),
-          _SelectableTile(
-            selected: _paymentMethod == 'cod',
-            onTap: () => setState(() => _paymentMethod = 'cod'),
-            title: 'Cash on Delivery',
-            subtitle: 'Pay the delivery partner when your order arrives',
-            leading: Icons.currency_rupee,
+              const SizedBox(height: AppSpacing.xl),
+              const _SectionTitle(
+                icon: Icons.location_on_outlined,
+                title: 'Delivery address',
+              ),
+              const SizedBox(height: AppSpacing.md),
+              addressesAsync.when(
+                loading: () => const ListSkeleton(count: 2, itemHeight: 64),
+                error: (e, _) => ErrorState(
+                  title: 'Could not load your addresses',
+                  error: e,
+                  onRetry: () => ref.invalidate(addressesProvider),
+                ),
+                data: (addresses) {
+                  _selectedAddressId ??=
+                      addresses.isNotEmpty ? addresses.first.id : null;
+
+                  if (addresses.isEmpty) {
+                    return _Callout(
+                      icon: Icons.add_location_alt_outlined,
+                      color: semantic.warning,
+                      text: 'Add a delivery address to continue.',
+                      action: TextButton(
+                        onPressed: _showAddAddressDialog,
+                        child: const Text('Add address'),
+                      ),
+                    );
+                  }
+
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (final address in addresses)
+                        _SelectableTile(
+                          selected: _selectedAddressId == address.id,
+                          onTap: () =>
+                              setState(() => _selectedAddressId = address.id),
+                          title: address.label,
+                          subtitle: '${address.landmark}\n${address.phone}',
+                          leading: Icons.location_on_outlined,
+                        ),
+                      const SizedBox(height: AppSpacing.sm),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton.icon(
+                          onPressed: _showAddAddressDialog,
+                          icon: const Icon(Icons.add, size: AppIconSize.md),
+                          label: const Text('Add new address'),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+              const SizedBox(height: AppSpacing.xl),
+              const _SectionTitle(
+                icon: Icons.payments_outlined,
+                title: 'Payment method',
+              ),
+              const SizedBox(height: AppSpacing.md),
+              if (!kIsWeb)
+                _SelectableTile(
+                  selected: _paymentMethod == 'upi',
+                  onTap: () => setState(() => _paymentMethod = 'upi'),
+                  title: 'UPI / Card',
+                  subtitle: 'Pay now, securely via Razorpay',
+                  leading: Icons.account_balance_wallet_outlined,
+                )
+              else
+                Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                  child: _Callout(
+                    icon: Icons.info_outline,
+                    color: semantic.mutedText,
+                    text: 'Online payment is available on the Android app. '
+                        'On web, Cash on Delivery only for now.',
+                  ),
+                ),
+              _SelectableTile(
+                selected: _paymentMethod == 'cod',
+                onTap: () => setState(() => _paymentMethod = 'cod'),
+                title: 'Cash on Delivery',
+                subtitle: 'Pay the delivery partner when your order arrives',
+                leading: Icons.currency_rupee,
+              ),
+            ],
           ),
-        ],
-      ),
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          color: theme.colorScheme.surface,
-          border: Border(top: BorderSide(color: theme.colorScheme.outlineVariant)),
-        ),
-        child: SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.all(AppSpacing.lg),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
+          bottomNavigationBar: Container(
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surface,
+              border: Border(
+                  top: BorderSide(color: theme.colorScheme.outlineVariant)),
+            ),
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.all(AppSpacing.lg),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Expanded(
-                      child: Text('Total payable', style: theme.textTheme.bodyMedium),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text('Total payable',
+                              style: theme.textTheme.bodyMedium),
+                        ),
+                        Text(
+                          currency.format(total),
+                          style: theme.textTheme.titleLarge,
+                        ),
+                      ],
                     ),
-                    Text(
-                      currency.format(total),
-                      style: theme.textTheme.titleLarge,
+                    const SizedBox(height: AppSpacing.md),
+                    FilledButton(
+                      onPressed: _orderState == _PlaceOrderState.idle
+                          ? _placeOrder
+                          : null,
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size.fromHeight(52),
+                      ),
+                      child: AnimatedSwitcher(
+                        duration: AppMotion.fast,
+                        child: switch (_orderState) {
+                          _PlaceOrderState.idle => Text(
+                              _paymentMethod == 'cod'
+                                  ? 'Place order'
+                                  : 'Pay ${currency.format(total)}',
+                              key: const ValueKey('idle'),
+                            ),
+                          _PlaceOrderState.placing => SizedBox(
+                              key: const ValueKey('placing'),
+                              height: AppIconSize.md,
+                              width: AppIconSize.md,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: theme.colorScheme.onPrimary,
+                              ),
+                            ),
+                          _PlaceOrderState.success => Icon(
+                              Icons.check_rounded,
+                              key: const ValueKey('success'),
+                              color: theme.colorScheme.onPrimary,
+                              size: AppIconSize.md,
+                            ),
+                        },
+                      ),
                     ),
                   ],
                 ),
-                const SizedBox(height: AppSpacing.md),
-                FilledButton(
-                  onPressed: _placingOrder ? null : _placeOrder,
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size.fromHeight(52),
-                  ),
-                  child: _placingOrder
-                      ? SizedBox(
-                          height: AppIconSize.md,
-                          width: AppIconSize.md,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: theme.colorScheme.onPrimary,
-                          ),
-                        )
-                      : Text(_paymentMethod == 'cod'
-                          ? 'Place order'
-                          : 'Pay ${currency.format(total)}'),
-                ),
-              ],
+              ),
             ),
           ),
+        ),
+        if (_orderState == _PlaceOrderState.success)
+          const Positioned.fill(child: _OrderSuccessOverlay()),
+      ],
+    );
+  }
+}
+
+/// Full-bleed confirmation shown for a brief hold after a successful order
+/// (see `_showSuccessAndFinish`) — replaces the old instant SnackBar.
+class _OrderSuccessOverlay extends StatelessWidget {
+  const _OrderSuccessOverlay();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Material(
+      color: theme.colorScheme.primary,
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.check_circle,
+              size: AppIconSize.hero,
+              color: theme.colorScheme.onPrimary,
+            )
+                .animate()
+                .scale(
+                  begin: const Offset(0.4, 0.4),
+                  end: const Offset(1, 1),
+                  duration: AppMotion.slow,
+                  curve: Curves.elasticOut,
+                )
+                .fadeIn(duration: AppMotion.fast),
+            const SizedBox(height: AppSpacing.lg),
+            Text(
+              'Order placed!',
+              style: theme.textTheme.headlineSmall?.copyWith(
+                color: theme.colorScheme.onPrimary,
+                fontWeight: FontWeight.w700,
+              ),
+            )
+                .animate(delay: AppMotion.normal)
+                .fadeIn(duration: AppMotion.normal),
+          ],
         ),
       ),
     );
@@ -448,7 +535,9 @@ class _SelectableTile extends StatelessWidget {
                   Icon(
                     leading,
                     size: AppIconSize.lg,
-                    color: selected ? theme.colorScheme.primary : semantic.mutedText,
+                    color: selected
+                        ? theme.colorScheme.primary
+                        : semantic.mutedText,
                   ),
                   const SizedBox(width: AppSpacing.md),
                   Expanded(
@@ -476,7 +565,9 @@ class _SelectableTile extends StatelessWidget {
                         ? Icons.radio_button_checked
                         : Icons.radio_button_unchecked,
                     size: AppIconSize.md,
-                    color: selected ? theme.colorScheme.primary : semantic.mutedText,
+                    color: selected
+                        ? theme.colorScheme.primary
+                        : semantic.mutedText,
                   ),
                 ],
               ),
